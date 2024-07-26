@@ -1,0 +1,228 @@
+# SK Overview
+
+## Data and Packages
+
+```{r data-and-packages}
+library(tidyverse)
+source(here::here("src/pipeline/transform.R"))
+
+d0 <- load_data() 
+d <- d0 |> clean_data()
+
+dl_button <- function(x, name) {
+  x |> 
+    downloadthis::download_this(
+      output_name = glue::glue("sk-overview_{name}"), 
+      output_extension = ".csv", 
+      button_label = "Download data as CSV", 
+      button_type = "default", 
+      has_icon = TRUE, 
+      icon = "fa fa-save"
+    )
+}
+```
+
+## Sample
+
+This analysis includes all Treatment and Non-RCT participants in Saskatchewan. 
+The table below shows the number of participants in each SK cohort by assignment label. 
+
+```{r sample}
+dsk <- d |> filter(demo_province_fct == "Saskatchewan", assignment_label_fct != "Comparison")
+
+t00 <- dsk |> 
+  mutate(cohort_name = fct_reorder(cohort_name, date_of_enrollment)) |> 
+  count(cohort_name, assignment_label_fct) |> 
+  group_by(cohort_name) |> 
+  mutate(Total = sum(n)) |> 
+  ungroup() |> 
+  tidyr::pivot_wider(names_from = assignment_label_fct, values_from = n)  |> 
+  select(c(-Total), Total)
+
+t00 |> 
+  gt::gt() |> 
+  gt::sub_missing(missing_text = "---") |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gt::grand_summary_rows(
+    columns = 2:4, 
+    fns = list(Total = ~sum(.x, na.rm = TRUE))
+  )
+
+dl_button(t00, "t00-sample")
+```
+
+The total number of participants in our sample is `r nrow(filter(dsk, assignment_label_fct != "Control"))`.
+
+## Baseline Characteristics
+
+### Key factors
+```{r hdesgs}
+labs_lgl <- c(
+  demo_born_in_canada = "Born in Canada", 
+  demo_immigrant_lgl = "Immigrant",
+  demo_receiving_ei_lgl = "Receiving EI",
+  demo_receiving_ia_lgl = "Receiving Social Assistance", 
+  demo_newcomer_lgl = "Newcomer (< 5 years in Canada)",
+  demo_indigenous_lgl = "Indigenous", 
+  demo_racialized_lgl = "Racialized", 
+  demo_bipoc_lgl = "BIPOC",  
+  demo_disability_lgl = "Disability", 
+  demo_young_lgl = "Youth (< 30)",
+  demo_old_lgl = "Older (> 64)", 
+  demo_woman_plus_lgl = "Woman+"
+)
+
+
+t01 <- dsk |> 
+  mutate(demo_woman_plus_lgl = demo_gender_fct != "Man" | demo_transgender_lgl) |> 
+  select(enrollment_id, matches('^demo_.*lgl$'))  |> 
+  select(-matches("trans|in_sk|parent")) |> 
+  pivot_longer(cols = c(-enrollment_id), names_to = "var", values_to = "val", cols_vary = "slowest") |>
+  mutate(var = fct_inorder(var)) |>  
+  filter(!is.na(val)) |> 
+  group_by(var) |> 
+  summarize(N = n(), n = sum(val), p = n / N)  |> 
+  mutate(lab = labs_lgl[as.character(var)]) |> 
+  select(lab, N, n, p)
+
+t01 |> 
+  gt::gt() |> 
+  gt::fmt_percent(columns = p, decimals = 0) |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
+
+dl_button(t01, "t01-demographics")
+```
+
+
+### Education 
+```{r baseline-education}
+t02 <- dsk |>
+  filter(!is.na(educ_max_fct)) |> 
+  group_by(educ_max_fct) |> 
+  summarize( 
+    n = n(), 
+    .groups = 'drop'
+  ) |> 
+  mutate(
+    N = sum(n),
+    p = n / N
+  ) |> 
+  select(`Baseline Highest Education` = educ_max_fct, N, n, p) 
+
+t02 |> 
+  gt::gt() |> 
+  gt::fmt_percent(columns = p, decimals = 0) |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
+
+dl_button(t02, "t02-education")
+```
+
+## Program Satisfaction
+
+```{r program-satisfaction}
+t03 <- dsk |> 
+  select(enrollment_id, matches("^satis")) |> 
+  pivot_longer(cols = -enrollment_id, names_to = "var", values_to = "val") |> 
+  mutate(var = fct_inorder(var)) |> 
+  filter(!is.na(val)) |> 
+  group_by(var) |> 
+  summarize(N = n(), n = sum(val), p = n / N) |> 
+  select(lab = var, N, n, p)
+
+t03 |> 
+  gt::gt() |> 
+  gt::fmt_percent(columns = p, decimals = 0) |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
+
+dl_button(t03, "t03-satisfaction")
+```
+
+## Outcomes
+
+### Employment Hope
+
+```{r employment-hope}
+t04 <- dsk |>
+  select(enrollment_id, ehs) |> 
+  unnest(ehs) |> 
+  pivot_longer(
+    cols = matches("^ehs_"), 
+    names_to = "var", 
+    values_to = "val", 
+    cols_vary = "slowest"
+  ) |> 
+  mutate(var = fct_inorder(var), survey_tag = fct_reorder(survey_tag, survey_time)) |> 
+  filter(!is.na(val)) |>
+  group_by(var, survey_tag) |> 
+  summarize(
+    N = n(), 
+    mean = mean(val), 
+    sd = sd(val), 
+    .groups = 'drop'
+  ) |> 
+  group_by(var)
+
+
+t04 |> 
+  gt::gt() |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = mean, keep_column = TRUE, color = "lightblue") |> 
+  gt::fmt_number(columns = c(mean, sd), decimals = 1)
+
+dl_button(t04, "t04-ehs-14")
+
+```
+
+### Employment Status
+```{r outcomes}
+d_out <- dsk |> 
+  select(enrollment_id, outcomes) |> 
+  unnest(outcomes) |> 
+  arrange(desc(survey_version), survey_time) |> 
+  mutate(survey_tag = fct_inorder(survey_tag) |> fct_relevel("12-month-follow-up", after = Inf))
+
+t05 <- d_out |> 
+  group_by(survey_tag) |>
+  filter(!is.na(job_employed)) |> 
+  summarize(
+    N = n(), 
+    Employed = mean(job_employed), 
+    Enrolled = mean(educ_enrolled, na.rm = TRUE), 
+    NEET = 1 - Employed - Enrolled,
+  ) 
+
+t05 |> 
+  gt::gt() |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gt::fmt_percent(columns = c(Employed, Enrolled, NEET), decimals = 0)
+
+dl_button(t05, "t05-employment-status")
+```
+
+### Compensation (Among Employed)
+
+```{r compensation}
+t06 <- d_out |> 
+  filter(job_employed %in% TRUE) |> 
+  group_by(survey_tag) |> 
+  summarize(
+    N = n(), 
+    across(matches("^job_benefits|^job_annualized_salary"), function(x) mean(x, na.rm = TRUE))
+  ) |> 
+  select(survey_tag, N, job_annualized_salary,  matches("^job_benefits")) |> 
+  rename_all(~str_replace(., "job_benefits|job_", "")) |> 
+  select(-c(`_none`, `_n`, `_any`), `_any`, `_total` = `_n`)
+
+t06 |> 
+  gt::gt() |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gt::fmt_percent(columns = c(matches("^_[^t]")), decimals = 0) |> 
+  gt::fmt_number(columns = c(`_total`), decimals = 1) |> 
+  gt::fmt_currency(columns = c(annualized_salary), currency = "CAD", decimals = 0) |> 
+  gt::tab_spanner(columns = c(matches("^_")), label = "Benefits")
+
+dl_button(t06, "t06-compensation")
+```

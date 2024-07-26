@@ -1,0 +1,23 @@
+project:
+  type: book
+  output-dir: ../docs
+  execute-dir: project
+
+book:
+  title: "IMMM+ Phase 2 Reports"
+  author: "Thomas McManus"
+  date: "2024-07-26"
+  chapters:
+    - index.qmd
+    - sk-overview.qmd
+
+bibliography: refs.bib
+
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+
+
+

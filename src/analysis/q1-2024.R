@@ -12,30 +12,8 @@ d_root <- d |>
     enrollment_quarter = lubridate::quarter(date_of_enrollment, fiscal_start = 4, type = "year.quarter")
   )
 
-d_root |> 
-  summarize(across(everything(), ~ mean(!is.na(.x)))) |> 
-  tidyr::pivot_longer(everything(), names_to = "var", values_to = "p_there") 
-  
-d_root |> 
-  count(date_of_enrollment) |> 
-  arrange(desc(date_of_enrollment))
-
 dq1 <- d_root |> 
-  filter(enrollment_quarter == 2025.1) |> 
-  mutate(
-  )
-
-dq1 |> 
-  count(demo_age_fct)
-
-d |> 
-  filter(survey_time == 1, survey_version == 2) |> 
-  unnest(data) |> 
-  semi_join(dq1, by = "enrollment_id") |> 
-  select(matches("date_of_birth"))
-
-d_hope <- d |> 
-  construct_hope_df()
+  filter(enrollment_quarter == 2025.1) 
 
 labs_lgl <- c(
   demo_born_in_canada = "Born in Canada", 
@@ -68,9 +46,11 @@ dt_lgl <- dq1 |>
   pivot_longer(
     matches("^demo_"), 
     names_to = "var", 
-    values_to = "val"
+    values_to = "val", 
+    cols_vary = "slowest"
   ) |> 
   filter(!is.na(val)) |> 
+  mutate(var = fct_inorder(var)) |> 
   group_by(assignment_label_fct, var) |>
   summarize(
     N = n(), 
@@ -90,19 +70,29 @@ dt_lgl <- dq1 |>
     names_from = assignment_label_fct, 
     values_from = pct_n
   )
+
   
 dt_prov <- dq1 |> 
   filter(!is.na(demo_province_fct)) |> 
   group_by(lab = demo_province_fct, assignment_label_fct) |>
   summarize(
-    n = n()
+    n = n(),
+    .groups = "drop"
   ) |> 
+  group_by(assignment_label_fct) |> 
   mutate(
     pct_n = glue::glue("{scales::percent(n / sum(n), accuracy = 1)} ({n}/{sum(n)})")
+  ) |> 
+  select(-n) |> 
+  pivot_wider(
+    names_from = assignment_label_fct, 
+    values_from = pct_n, 
+    values_fill = ""
   )
 
-
- |> 
+dt_lgl |> 
+  bind_rows(dt_prov) |> 
   write_csv("out/q1-2025/demos_q1-2025.csv")
 
+dt_lgl
 

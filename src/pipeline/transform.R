@@ -1,8 +1,3 @@
-library(tidyverse)
-library(bpqx)
-
-readRenviron(".env")
-
 latest_cache_file <- function(obj_id) {
   cache_dir <- file.path(Sys.getenv("Z_HOME"), "Data", "cache", obj_id)
 
@@ -49,6 +44,7 @@ load_sf <- function(fetch = FALSE) {
       .g = cohort_name |>
         stringr::str_trim() |>  
         stringr::str_extract("(Program|Comparison)$"), 
+      cohort_name = stringr::str_remove(cohort_name, " - (Program|Comparison)$"),
       assignment_label_fct = 
         dplyr::case_when(
           is.na(.g) ~ "Non-RCT", 
@@ -126,7 +122,7 @@ load_surveys <- function(sf, fetch = FALSE) {
 }
 
 survey_list <- function(fetch = FALSE) {
-  file <- "data/survey_list.rds"
+  file <- here::here("data/survey_list.rds")
   if(fetch | !fs::file_exists(file)) {
     readr::write_rds(bpqx::list_surveys(), file)
   }
@@ -275,6 +271,7 @@ harmonize_baseline <- function(dr, t, v) {
     ) |> 
     dplyr::select(
       enrollment_id, 
+      cohort_name,
       date_of_enrollment, 
       demo_age, 
       demo_date_of_birth, 
@@ -397,7 +394,7 @@ TODO <- function() {
   stop(glue::glue("{parent_scope} not yet implemented (#TODO)"), call. = FALSE)
 }
 
-harmonize_employment <- function(dr, t, v) {
+harmonize_outcomes <- function(dr, t, v) {
 
   res <- dr
 
@@ -429,6 +426,14 @@ harmonize_employment <- function(dr, t, v) {
       job_satis_precarity_pos = job_satisfaction_precarity |> 
         stringr::str_detect("Agree|Strongly agree"),
     )
+
+  if (t > 1 | v == 2) {
+    res <- res |> 
+      dplyr::mutate(
+        educ_enrolled = educ_enrolled == "Yes", 
+        neet = job_employed + educ_enrolled == 0,
+      )
+  }
 
   ben_cols <- res |> 
     colnames() |> 
@@ -489,7 +494,7 @@ harmonize_employment <- function(dr, t, v) {
         job_temporary = job_temporary == "Yes", 
       )
   }
-  
+
   res |> 
     dplyr::select(
       enrollment_id, 
@@ -499,29 +504,112 @@ harmonize_employment <- function(dr, t, v) {
       job_tenure_wks, 
       job_seasonal, 
       job_temporary, 
-      job_casual, 
       matches("^job_satis_"), 
       matches("^job_benefits_"),
-      job_annualized_salary
+      job_annualized_salary,
+      matches("^educ_enrolled$|^neet$"),
     )
-}
-
-
-harmonize_education <- function(dr, t, v) {
-
 }
 
 construct_outcomes_df <- function(d) {
   d |> 
     dplyr::mutate(
-      emp = purrr::pmap(
+      outcomes = purrr::pmap(
         .l = list(dr = data, t = survey_time, v = survey_version), 
-        .f = harmonize_employment
-      ), 
-      educ = purrr::pmap(
-        .l = list(dr = data, t = survey_time, v = survey_version), 
-        .f = harmonize_education
+        .f = harmonize_outcomes
       )
-    )
-  
+    ) |> 
+    dplyr::select(-data) |> 
+    tidyr::unnest(outcomes) |>
+    dplyr::group_by(enrollment_id, survey_time) |>
+    dplyr::mutate(
+      dplyr::across(
+        everything(), 
+        first_non_missing
+      )
+    ) |> 
+    dplyr::group_by(enrollment_id) |> 
+    dplyr::group_nest(.key = "outcomes")
 }
+
+harmonize_prog_sat <- function(dr, t, v) {
+  res <- dr |> 
+    dplyr::filter(!is.na(response_id))
+  sat_cols <- res |> 
+    colnames() |> 
+    stringr::str_detect("^satis_")
+
+  if (t == 2) {
+    colnames(res)[sat_cols] <- c(
+      "satis_inmotion_overall", 
+      "satis_momentum_overall", 
+      "satis_inmotion_utility", 
+      "satis_momentum_utility", 
+      "satis_inmotion_recommend",
+      "satis_momentum_recommend"
+    )
+  } else if (t == 3) {
+    colnames(res)[sat_cols] <- c(
+      "satis_m_plus_overall", 
+      "satis_immm_plus_overall", 
+      "satis_m_plus_utility", 
+      "satis_immm_plus_utility", 
+      "satis_immm_plus_recommend"
+    )
+  }
+
+  res <- res |> 
+    dplyr::mutate(
+      across(
+        matches("^satis_"), 
+        function(x) (max(as.integer(x)) - as.integer(x)) <= 1
+      )
+    ) |> 
+    dplyr::select(
+      enrollment_id, 
+      matches("^satis_")
+    )
+}
+
+construct_satis_df <- function(d) {
+  res <- d |> 
+    dplyr::filter(survey_time %in% 2:3) |> 
+    dplyr::mutate(
+      satis = purrr::pmap(
+        .l = list(dr = data, t = survey_time, v = survey_version), 
+        .f = harmonize_prog_sat
+      )
+    ) |> 
+    dplyr::select(-data) |> 
+    dplyr::group_by(survey_time) |>
+    dplyr::summarize(
+      satis = list(satis) |> purrr::map(dplyr::bind_rows)
+    ) |> 
+    dplyr::pull(satis) 
+
+  dplyr::full_join(res[[1]], res[[2]], by = "enrollment_id")
+
+}
+
+load_data <- memoise::memoise(function(fetch = FALSE) {
+  readRenviron(here::here(".env"))
+  load_sf(fetch = fetch) |> 
+    load_surveys(fetch = fetch) |> 
+    join_surveys()
+})
+
+clean_data <- memoise::memoise(function(d) {
+  construct_root_df(d) |> 
+    dplyr::left_join(
+      construct_hope_df(d), 
+      by = "enrollment_id"
+    ) |>
+    dplyr::left_join(
+      construct_outcomes_df(d), 
+      by = "enrollment_id"
+    ) |> 
+    dplyr::left_join(
+      construct_satis_df(d), 
+      by = "enrollment_id"
+    )
+})
