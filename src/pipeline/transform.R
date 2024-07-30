@@ -215,9 +215,10 @@ harmonize_baseline <- function(dr, t, v) {
       ),
       demo_province_fct = demo_province, 
       demo_in_sk_lgl = demo_province == "Saskatchewan", 
-      demo_receiving_ei_lgl = income_source == "Employment Insurance", 
-      demo_receiving_ia_lgl = income_source != "None of the above" & 
-        income_source != "Employment Insurance",
+      demo_receiving_ei_lgl = demo_province == "Saskatchewan" & 
+        income_source %in% "Employment Insurance", 
+      demo_receiving_ia_lgl = (!demo_receiving_ei_lgl) &
+        (!is.na(income_source)),
       
       # Disability
       demo_disability_lgl = demo_disability == "Yes",

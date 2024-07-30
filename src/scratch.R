@@ -216,3 +216,14 @@ bpconnect::vpn_start()
 d <- load_data() |> clean_data()
 d |> 
   select(outcomes)
+
+d0 <- load_data()
+
+d0 |> 
+  group_by(survey_time) |> 
+  summarize(
+    data = list(data) |> purrr::map(dplyr::bind_rows)
+  )
+
+d0 |> 
+  construct_satis_df()

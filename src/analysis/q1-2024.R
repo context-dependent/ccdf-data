@@ -59,7 +59,7 @@ dt_lgl <- dq1 |>
     pct_n = glue::glue("{scales::percent(p, accuracy = 1)} ({n}/{N})")
   ) |> 
   mutate(
-    lab = labs_lgl[var]
+    lab = labs_lgl[as.character(var)]
   ) |> 
   select(
     assignment_label_fct, 
