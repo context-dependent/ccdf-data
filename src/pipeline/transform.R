@@ -213,12 +213,17 @@ harmonize_baseline <- function(dr, t, v) {
         breaks = c(0, 20, 30, 40, 60, 100), 
         labels = c("20 or younger", "21 to 30", "31 to 40", "41 to 60", "61 or older")
       ),
-      demo_province_fct = demo_province, 
+      demo_province_fct = demo_province,
+      income_source_fct = income_source |> forcats::fct_expand("None of the Above"), 
+      demo_income_source_fct = dplyr::case_when(
+        is.na(demo_province) ~ NA_character_, 
+        is.na(income_source) ~ "None of the Above", 
+        TRUE ~ income_source
+      ),
       demo_in_sk_lgl = demo_province == "Saskatchewan", 
-      demo_receiving_ei_lgl = demo_province == "Saskatchewan" & 
-        income_source %in% "Employment Insurance", 
+      demo_receiving_ei_lgl = demo_income_source_fct == "Employment Insurance", 
       demo_receiving_ia_lgl = (!demo_receiving_ei_lgl) &
-        (!is.na(income_source)),
+        (demo_income_source_fct != "None of the Above"),
       
       # Disability
       demo_disability_lgl = demo_disability == "Yes",

@@ -1,0 +1,51 @@
+# Quarterly Reports
+
+```{r setup}
+#| include: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+source(here::here("src/pipeline/transform.R"))
+source(here::here("src/analysis/reporting.R"))
+
+d0 <- load_data() 
+
+d <- d0 |> clean_data() |> 
+  mutate(
+    enrollment_quarter = lubridate::quarter(
+      date_of_enrollment, 
+      fiscal_start = 3, 
+      type = "year.quarter"
+    ), 
+    in_q1_25_update = date_of_enrollment |> between(
+      lubridate::ymd("2024-03-01"), 
+      lubridate::ymd("2024-06-30")
+    )
+  )
+```
+
+## FYE 2025
+
+### Q1 (Proposed dates)
+
+```{r q1-25}
+dq1 <- d |> filter(in_q1_25_update)
+tq1 <- dq1 |> quarterly_table(caption = "Data for participants enrolled between March 1 - June 30, 2024", file_name = "ccdf-data_q1-25")
+
+tq1$tab |> 
+  gt::tab_source_note(source_note = "Note: calculated percentages in exhaustive categories may not sum to 100% due to rounding.")
+tq1$btn
+```
+
+### Q1 (Alternative dates)
+
+
+```{r q1-25-alt}
+tq1_ <- d |> filter(enrollment_quarter == "2025.1") |> 
+  quarterly_table(caption = "Data for participants enrolled between March 1 and May 31, 2024", file_name = "ccdf-data_q1-25-alt")
+
+tq1_$tab 
+```

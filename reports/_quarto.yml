@@ -9,6 +9,7 @@ book:
   date: "2024-07-26"
   chapters:
     - index.qmd
+    - quarterly-reports.qmd
     - sk-overview.qmd
 
 bibliography: refs.bib

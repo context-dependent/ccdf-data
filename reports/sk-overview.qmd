@@ -4,22 +4,12 @@
 
 ```{r data-and-packages}
 library(tidyverse)
+library(gt)
 source(here::here("src/pipeline/transform.R"))
+source(here::here("src/analysis/reporting.R"))
 
 d0 <- load_data() 
 d <- d0 |> clean_data()
-
-dl_button <- function(x, name) {
-  x |> 
-    downloadthis::download_this(
-      output_name = glue::glue("sk-overview_{name}"), 
-      output_extension = ".csv", 
-      button_label = "Download data as CSV", 
-      button_type = "default", 
-      has_icon = TRUE, 
-      icon = "fa fa-save"
-    )
-}
 ```
 
 ## Sample
@@ -29,6 +19,7 @@ The table below shows the number of participants in each SK cohort by assignment
 
 ```{r sample}
 dsk <- d |> filter(demo_province_fct == "Saskatchewan", assignment_label_fct != "Comparison")
+
 
 t00 <- dsk |> 
   mutate(cohort_name = fct_reorder(cohort_name, date_of_enrollment)) |> 
@@ -55,40 +46,65 @@ The total number of participants in our sample is `r nrow(filter(dsk, assignment
 
 ## Baseline Characteristics
 
-### Key factors
+### Key Demographics
 ```{r hdesgs}
 labs_lgl <- c(
-  demo_born_in_canada = "Born in Canada", 
-  demo_immigrant_lgl = "Immigrant",
-  demo_receiving_ei_lgl = "Receiving EI",
-  demo_receiving_ia_lgl = "Receiving Social Assistance", 
-  demo_newcomer_lgl = "Newcomer (< 5 years in Canada)",
-  demo_indigenous_lgl = "Indigenous", 
-  demo_racialized_lgl = "Racialized", 
-  demo_bipoc_lgl = "BIPOC",  
-  demo_disability_lgl = "Disability", 
-  demo_young_lgl = "Youth (< 30)",
-  demo_old_lgl = "Older (> 64)", 
-  demo_woman_plus_lgl = "Woman+"
+  demo_immigrant_lgl = "Migration--Immigrant",
+  demo_newcomer_lgl = "Migration--Newcomer (< 5 years in Canada)",
+  demo_born_in_canada_lgl = "Migration--Born in Canada", 
+  demo_receiving_ei_lgl = "Financial Assistance--Receiving EI",
+  demo_receiving_ia_lgl = "Financial Assistance--Receiving Social Assistance", 
+  demo_receiving_none_lgl = "Financial Assistance--None of the Above",
+  demo_young_lgl = "Age--Youth (< 30)",
+  demo_middle_age_lgl = "Age--Middle Age (30-64)",
+  demo_old_lgl = "Age--Older (> 64)", 
+  demo_racialized_lgl = "Marginalization Factors--Racialized", 
+  demo_indigenous_lgl = "Marginalization Factors--Indigenous", 
+  demo_bipoc_lgl = "Marginalization Factors--BIPOC",  
+  demo_disability_lgl = "Marginalization Factors--Disability", 
+  demo_woman_plus_lgl = "Marginalization Factors--Woman+",
+  demo_mf_none_lgl = "Marginalization Factors--None of the Above"
 )
 
-
 t01 <- dsk |> 
-  mutate(demo_woman_plus_lgl = demo_gender_fct != "Man" | demo_transgender_lgl) |> 
+  mutate(
+    demo_born_in_canada_lgl = !demo_immigrant_lgl,
+    demo_woman_plus_lgl = demo_gender_fct != "Man" | demo_transgender_lgl, 
+    demo_receiving_none_lgl = demo_receiving_ei_lgl + demo_receiving_ia_lgl == 0, 
+    demo_young_lgl = demo_age < 30, 
+    demo_old_lgl = demo_age > 64,
+    demo_middle_age_lgl = demo_young_lgl + demo_old_lgl == 0, 
+  ) |> 
   select(enrollment_id, matches('^demo_.*lgl$'))  |> 
+  rowwise() |> 
+  mutate(
+    demo_mf_none_lgl = sum(
+      c_across(
+        matches("^demo_(racialized|indigenous|bipoc|disability|woman_plus)_lgl")
+      )
+    ) == 0
+  ) |> 
+  ungroup() |> 
   select(-matches("trans|in_sk|parent")) |> 
   pivot_longer(cols = c(-enrollment_id), names_to = "var", values_to = "val", cols_vary = "slowest") |>
   mutate(var = fct_inorder(var)) |>  
   filter(!is.na(val)) |> 
   group_by(var) |> 
   summarize(N = n(), n = sum(val), p = n / N)  |> 
-  mutate(lab = labs_lgl[as.character(var)]) |> 
-  select(lab, N, n, p)
+  mutate(lab = labs_lgl[as.character(var)]) |>
+  separate(lab, into = c("cat", "var"), sep = "--", extra = "merge") |> 
+  select(cat, var, N, n, p)
 
 t01 |> 
-  gt::gt() |> 
-  gt::fmt_percent(columns = p, decimals = 0) |> 
-  gt::cols_align(align = "right", columns = 1) |> 
+  group_by(cat) |> 
+  gt(rowname_col = "var") |>
+  tab_stub_indent(rows = everything()) |> 
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups(groups = everything())
+  ) |> 
+  fmt_percent(columns = p, decimals = 0) |> 
+  cols_align(align = "right", columns = 1) |> 
   gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
 
 dl_button(t01, "t01-demographics")
