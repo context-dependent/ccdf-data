@@ -29,7 +29,9 @@ d <- d0 |> clean_data() |>
 
 ## FYE 2025
 
-### Q1 (Proposed dates)
+### Q1
+
+This report includes participants enrolled in March of 2024 as they were not represented in the previous quarter's report. 
 
 ```{r q1-25}
 dq1 <- d |> filter(in_q1_25_update)
@@ -38,14 +40,4 @@ tq1 <- dq1 |> quarterly_table(caption = "Data for participants enrolled between 
 tq1$tab |> 
   gt::tab_source_note(source_note = "Note: calculated percentages in exhaustive categories may not sum to 100% due to rounding.")
 tq1$btn
-```
-
-### Q1 (Alternative dates)
-
-
-```{r q1-25-alt}
-tq1_ <- d |> filter(enrollment_quarter == "2025.1") |> 
-  quarterly_table(caption = "Data for participants enrolled between March 1 and May 31, 2024", file_name = "ccdf-data_q1-25-alt")
-
-tq1_$tab 
 ```
