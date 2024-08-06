@@ -1,0 +1,279 @@
+# ON Overview
+
+## Data and Packages
+
+```{r data-and-packages}
+library(tidyverse)
+library(gt)
+source(here::here("src/pipeline/transform.R"))
+source(here::here("src/analysis/reporting.R"))
+
+d0 <- load_data() 
+d <- d0 |> clean_data()
+```
+
+## Sample
+
+This analysis includes all Treatment and Non-RCT participants in Ontario. 
+The table below shows the number of participants in each ON cohort by assignment label. 
+
+```{r sample}
+d_on <- d |> filter(demo_province_fct == "Ontario", assignment_label_fct != "Comparison")
+
+
+t00 <- d_on |> 
+  mutate(cohort_name = fct_reorder(cohort_name, date_of_enrollment)) |> 
+  count(cohort_name, assignment_label_fct) |> 
+  group_by(cohort_name) |> 
+  mutate(Total = sum(n)) |> 
+  ungroup() |> 
+  tidyr::pivot_wider(names_from = assignment_label_fct, values_from = n)  |> 
+  select(c(-Total), Total)
+
+t00 |> 
+  gt::gt() |> 
+  gt::sub_missing(missing_text = "---") |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gt::grand_summary_rows(
+    columns = 2:4, 
+    fns = list(Total = ~sum(.x, na.rm = TRUE))
+  )
+
+dl_button(t00, "t00-sample")
+```
+
+The total number of participants in our sample is `r nrow(filter(d_on, assignment_label_fct != "Control"))`.
+
+## Baseline Characteristics
+
+### Key Demographics
+```{r hdesgs}
+labs_lgl <- c(
+  demo_immigrant_lgl = "Migration--Immigrant",
+  demo_newcomer_lgl = "Migration--Newcomer (< 5 years in Canada)",
+  demo_born_in_canada_lgl = "Migration--Born in Canada", 
+  demo_receiving_ei_lgl = "Financial Assistance--Receiving EI",
+  demo_receiving_ia_lgl = "Financial Assistance--Receiving Social Assistance", 
+  demo_receiving_none_lgl = "Financial Assistance--None of the Above",
+  demo_young_lgl = "Age--Youth (< 30)",
+  demo_middle_age_lgl = "Age--Middle Age (30-64)",
+  demo_old_lgl = "Age--Older (> 64)", 
+  demo_racialized_lgl = "Marginalization Factors--Racialized", 
+  demo_indigenous_lgl = "Marginalization Factors--Indigenous", 
+  demo_bipoc_lgl = "Marginalization Factors--BIPOC",  
+  demo_disability_lgl = "Marginalization Factors--Disability", 
+  demo_woman_plus_lgl = "Marginalization Factors--Woman+",
+  demo_mf_none_lgl = "Marginalization Factors--None of the Above"
+)
+
+t01 <- d_on |> 
+  mutate(
+    demo_born_in_canada_lgl = !demo_immigrant_lgl,
+    demo_woman_plus_lgl = demo_gender_fct != "Man" | demo_transgender_lgl, 
+    demo_receiving_none_lgl = demo_receiving_ei_lgl + demo_receiving_ia_lgl == 0, 
+    demo_young_lgl = demo_age < 30, 
+    demo_old_lgl = demo_age > 64,
+    demo_middle_age_lgl = demo_young_lgl + demo_old_lgl == 0, 
+  ) |> 
+  select(enrollment_id, matches('^demo_.*lgl$'))  |> 
+  rowwise() |> 
+  mutate(
+    demo_mf_none_lgl = sum(
+      c_across(
+        matches("^demo_(racialized|indigenous|bipoc|disability|woman_plus)_lgl")
+      )
+    ) == 0
+  ) |> 
+  ungroup() |> 
+  select(-matches("trans|in_sk|parent")) |> 
+  pivot_longer(cols = c(-enrollment_id), names_to = "var", values_to = "val", cols_vary = "slowest") |>
+  mutate(var = fct_inorder(var)) |>  
+  filter(!is.na(val)) |> 
+  group_by(var) |> 
+  summarize(N = n(), n = sum(val), p = n / N)  |> 
+  mutate(lab = labs_lgl[as.character(var)]) |>
+  separate(lab, into = c("cat", "var"), sep = "--", extra = "merge") |> 
+  select(cat, var, N, n, p)
+
+t01 |> 
+  group_by(cat) |> 
+  gt(rowname_col = "var") |>
+  tab_stub_indent(rows = everything()) |> 
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups(groups = everything())
+  ) |> 
+  fmt_percent(columns = p, decimals = 0) |> 
+  cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
+
+dl_button(t01, "t01-demographics")
+```
+
+
+### Education 
+```{r baseline-education}
+t02 <- d_on |>
+  filter(!is.na(educ_max_fct)) |> 
+  group_by(educ_max_fct) |> 
+  summarize( 
+    n = n(), 
+    .groups = 'drop'
+  ) |> 
+  mutate(
+    N = sum(n),
+    p = n / N
+  ) |> 
+  select(`Baseline Highest Education` = educ_max_fct, N, n, p) 
+
+t02 |> 
+  gt::gt() |> 
+  gt::fmt_percent(columns = p, decimals = 0) |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
+
+dl_button(t02, "t02-education")
+```
+
+## Program Satisfaction
+
+```{r program-satisfaction}
+satis_labels <- c(
+  satis_immm_plus_overall = "Satisfied", 
+  satis_immm_plus_utility = "Found IMMM+ useful", 
+  satis_immm_plus_recommend = "Would recommend IMMM+"
+)
+t03 <- d_on |> 
+  select(enrollment_id, matches("^satis")) |> 
+  pivot_longer(cols = -enrollment_id, names_to = "var", values_to = "val") |> 
+  mutate(lab = fct_inorder(satis_labels[var])) |> 
+  filter(!is.na(val)) |> 
+  group_by(lab) |> 
+  summarize(N = n(), n = sum(val), p = n / N) |> 
+  select(lab, N, n, p)
+
+t03 |> 
+  gt::gt() |> 
+  gt::fmt_percent(columns = p, decimals = 0) |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gtExtras::gt_plt_bar(column = p, keep_column = TRUE, color = "lightblue")
+
+dl_button(t03, "t03-satisfaction")
+```
+
+## Outcomes
+
+### Employment Hope (EHS-14)
+
+The Short Employment Hope Scale (EHS-14) was designed to measure an individual's internal progress toward labour market success @hong2013.
+Its 14 items combine to produce scores between 0 and 11 for each of four domains: Psychological Empowerment, Forward-looking Self-motivation, Utilization of Skills and Resources, and Goal-orientation. These scores are calculated for each individual as the mean of their responses to the items in the domain. Higher scores indicate higher levels of employment hope, which evidence suggests is associated with better employment outcomes @hong2013.
+
+In the context of this study, we rely on the EHS-14 to supply an intermediate measure of the progress made by participants during and after their enrollment in the program.  
+
+```{r employment-hope}
+ehs_domain_labels <- c(
+  ehs_empowerment = "Psychological Empowerment", 
+  ehs_motivation = "Forward-looking Self-motivation", 
+  ehs_utilization = "Utilization of Skills and Resources", 
+  ehs_goal_orientation = "Goal-orientation"
+)
+
+
+t04 <- d_on |>
+  select(enrollment_id, ehs) |> 
+  unnest(ehs) |> 
+  pivot_longer(
+    cols = matches("^ehs_"), 
+    names_to = "var", 
+    values_to = "val", 
+    cols_vary = "slowest"
+  ) |> 
+  mutate(
+    lab = ehs_domain_labels[var] |> fct_inorder(), 
+    survey_tag = fct_reorder(survey_tag, survey_time)) |> 
+  filter(!is.na(val)) |>
+  select(-var) |> 
+  group_by(lab, survey_tag) |> 
+  summarize(
+    N = n(), 
+    mean = mean(val), 
+    sd = sd(val), 
+    .groups = 'drop'
+  ) |> 
+  group_by(lab)
+
+
+t04 |> 
+  gt::gt(groupname_col = "lab") |> 
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())
+  ) |> 
+  gt::cols_align(align = "left", columns = 1) |> 
+  gt::cols_align(align = "right", columns = 3:5) |>
+  gtExtras::gt_plt_bar(column = mean, keep_column = TRUE, color = "lightblue") |> 
+  gt::fmt_number(columns = c(mean, sd), decimals = 1) 
+
+dl_button(t04, "t04-ehs-14")
+
+```
+
+### Employment Status
+
+The table below shows self-reported rates of employment, enrollment in education, and being NEET (Not in Employment, Education, or Training) among survey respondents at each survey time point. 
+
+:::{.callout-note} 
+## Interpreting 9 and 12 month outcomes
+
+Of note, between the first (non-RCT) and second (RCT) phases of the program, the 9-month follow-up survey was removed from the data collection protocol, and a 12-month follow-up survey was added. This is relevant to the interpretation of the data, as---unlike the surveys from intake to 3 months post-program---respondent populations at the 9 and 12 month follow-up surveys are mutually exclusive. 
+:::
+
+```{r outcomes}
+d_out <- d_on |> 
+  select(enrollment_id, outcomes) |> 
+  unnest(outcomes) |> 
+  arrange(desc(survey_version), survey_time) |> 
+  mutate(survey_tag = fct_inorder(survey_tag) |> fct_relevel("12-month-follow-up", after = Inf))
+
+t05 <- d_out |> 
+  group_by(survey_tag) |>
+  filter(!is.na(job_employed)) |> 
+  summarize(
+    N = n(), 
+    Employed = mean(job_employed), 
+    Enrolled = mean(educ_enrolled, na.rm = TRUE), 
+    NEET = 1 - Employed - Enrolled,
+  ) 
+
+t05 |> 
+  gt::gt() |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gt::fmt_percent(columns = c(Employed, Enrolled, NEET), decimals = 0)
+
+dl_button(t05, "t05-employment-status")
+```
+
+### Compensation (Among Employed)
+
+```{r compensation}
+t06 <- d_out |> 
+  filter(job_employed %in% TRUE) |> 
+  group_by(survey_tag) |> 
+  summarize(
+    N = n(), 
+    across(matches("^job_benefits|^job_annualized_salary"), function(x) mean(x, na.rm = TRUE))
+  ) |> 
+  select(survey_tag, N, job_annualized_salary,  matches("^job_benefits")) |> 
+  rename_all(~str_replace(., "job_benefits|job_", "")) |> 
+  select(-c(`_none`, `_n`, `_any`), `_any`, `_total` = `_n`)
+
+t06 |> 
+  gt::gt() |> 
+  gt::cols_align(align = "right", columns = 1) |> 
+  gt::fmt_percent(columns = c(matches("^_[^t]")), decimals = 0) |> 
+  gt::fmt_number(columns = c(`_total`), decimals = 1) |> 
+  gt::fmt_currency(columns = c(annualized_salary), currency = "CAD", decimals = 0) |> 
+  gt::tab_spanner(columns = c(matches("^_")), label = "Benefits")
+
+dl_button(t06, "t06-compensation")
+```

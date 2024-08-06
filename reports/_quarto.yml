@@ -11,6 +11,8 @@ book:
     - index.qmd
     - quarterly-reports.qmd
     - sk-overview.qmd
+    - on-overview.qmd
+    - references.qmd
 
 bibliography: refs.bib
 

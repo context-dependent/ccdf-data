@@ -12,6 +12,8 @@ d_root <- d |>
     enrollment_quarter = lubridate::quarter(date_of_enrollment, fiscal_start = 4, type = "year.quarter")
   )
 
+library(rlang)
+
 dq1 <- d_root |> 
   filter(enrollment_quarter == 2025.1) 
 
